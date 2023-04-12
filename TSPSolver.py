@@ -134,7 +134,6 @@ class TSPSolver:
 	'''
 
 	def fancy(self, time_allowance=60.0):
-		found_tour = False
 		default_tour = self.defaultRandomTour(time_allowance)
 		solution = default_tour['soln']
 		route = solution.route
@@ -147,12 +146,10 @@ class TSPSolver:
 			improvement = False
 			for i in range(1, len(route) - 2):
 				for j in range(i + 1, len(route) - 1):
-					print(i, j)
 					if self.calculate_distance(i, i + 1, route) + self.calculate_distance(j, j + 1, route) > \
 							self.calculate_distance(i, j, route) + self.calculate_distance(i + 1, j + 1, route):
 						route[i + 1:j + 1] = reversed(route[i + 1:j + 1])
 						improvement = True
-						found_tour = False
 						solution = TSPSolution(route)
 						route = solution.route
 						cost = solution.cost
@@ -171,7 +168,6 @@ class TSPSolver:
 
 
 	def calculate_distance(self, city_one_index, city_two_index, route):
-		cities = self._scenario.getCities
 		city_one = route[city_one_index]
 		city_two = route[city_two_index]
 
