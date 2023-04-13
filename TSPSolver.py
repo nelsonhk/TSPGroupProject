@@ -87,7 +87,7 @@ class TSPSolver:
 		visited = [current]
 		start_time = time.time()
 
-		while len(visited) < len(cities) - 1:
+		while len(visited) < len(cities):
 			next_city = None
 			min_distance = float('inf')
 			for city in cities:
