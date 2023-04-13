@@ -23,6 +23,14 @@ import itertools
 class TSPSolver:
 	def __init__(self, gui_view):
 		self._scenario = None
+		self.allowed_time = True
+		self.unique_id = 0
+		self.states = 0
+		self.pruned = 0
+		self.solutions = 0
+		self.max_size = 0
+		self.start_time = time.time()
+		self.time_allowance = 60
 
 	def setupWithScenario(self, scenario):
 		self._scenario = scenario
@@ -126,73 +134,268 @@ class TSPSolver:
 	# Time complexity: O(n!)
 	# Space complexity: O(1)
 	def branchAndBound(self, time_allowance=60.0):
-		# init values
-		startTime = time.time()
+		# initialize several variables that help us in the future
 		cities = self._scenario.getCities()
-		init = TSPState()
-		bssf = TSPState()
-		bssfCount = 0
-		maxQueueSize = 0
-		numPruned = 0
-		totalStates = 1
+		ncities = len(cities)
+		visited = [0]
+		found_tour = False
+		self.set_variables()
+		self.start_time = time.time()
+		self.time_allowance = time_allowance
 
-		# reduced cost matrix algorithm - create initial state
-		# initialize distances
-		init.array = [[cities[i].costTo(cities[j]) for j in range(len(cities))] for i in range(len(cities))]
+		# make cost matrix
+		cost_matrix = self.make_cost_matrix()
 
-		# reduce
-		init.cost = 0
-		init.reduce()
+		# reduce the matrix
+		reduced_matrix, lower_bound = self.reduce_cost_matrix(cost_matrix)
 
-		# create priority queue
-		queue = PriorityQueue()
+		# get the initial bssf
+		default_tour = self.defaultRandomTour(time_allowance)
+		bssf = default_tour
+		bssf_cost = bssf['cost']
 
-		# add initial state to it
-		queue.put((init.getPriorityKey(), init))
+		# make the queue
+		queue = self.make_queue(reduced_matrix, lower_bound, ncities)
 
-		# run partial path branch and bound algorithm - O(n!)
-		while not queue.empty() and startTime + time_allowance > time.time():
-			if queue.qsize() > maxQueueSize:
-				maxQueueSize = queue.qsize()
-			P: TSPState = queue.get()[1]
-			if P.cost < bssf.cost:
-				T: [TSPState] = P.expand()
-				numPruned += len(P.array) - len(T)  # count infinite-cost states as pruned?
-				totalStates += len(P.array)
-				for Pi in T:
-					if Pi.isLeaf() and Pi.cost < bssf.cost:
-						bssf = Pi
-						bssfCount += 1
-					elif Pi.cost < bssf.cost:
-						queue.put((Pi.getPriorityKey(), Pi))
-					else:
-						numPruned += 1
+		# run while the length of the queue is grater than 0 and while time hasn't run out
+		while len(queue) > 0 and self.allowed_time:
+			# pop the route with the lowest bssf off the queue
+			city = queue.pop(0)
+			# if the lower bound is smaller than the bssf
+			if city[2] < bssf_cost and self.allowed_time:
+				# update the visited cities
+				visited = city[5]
+				# if the # of cities visited is = to the # of cities in the problem
+				if len(visited) == ncities:
+					# a tour is found
+					found_tour = True
+					# add each visited city to a route array
+					route = []
+					for i in range(len(visited)):
+						route.append(cities[visited[i]])
+					# give that route array to a TSPSolution object and that becomes new bssf, update the bssf cost
+					bssf = TSPSolution(route)
+					bssf_cost = bssf.cost
+					# add to the number of solutions found
+					self.solutions += 1
+				# add the children states to the queue
+				else:
+					self.add_children(queue, city[2], city[3], city[4], city[5], ncities)
+			# prune the states where the lower bound is greater than the bssf cost
 			else:
-				numPruned += 1
+				self.pruned += 1
 
-		# count rest of pruned states if time went before queue emptied
-		while not queue.empty():
-			P: TSPState = queue.get()[1]
-			if P.cost >= bssf.cost:
-				numPruned += 1
-
-		# prepare TSPSolution and result with bssf
-		cityPath = [cities[i] for i in bssf.path]
-		cityPath.pop()
-		solution = TSPSolution(cityPath)
-
-		endTime = time.time()
-		results = {
-			'cost': bssf.cost,
-			'time': endTime - startTime,
-			'count': bssfCount,
-			'soln': solution,
-			'max': maxQueueSize,
-			'total': totalStates,
-			'pruned': numPruned
-		}
+		# create a dictionary with all the best route results
+		end_time = time.time()
+		results = {}
+		results['cost'] = bssf_cost if found_tour else math.inf
+		results['time'] = end_time - self.start_time
+		results['count'] = self.solutions
+		results['soln'] = bssf if found_tour else bssf['soln']
+		results['max'] = self.max_size
+		results['total'] = self.states
+		results['pruned'] = self.pruned
 		return results
 
+	def make_cost_matrix(self):
+		cities = self._scenario.getCities()
+		ncities = len(cities)
+
+		# initialize the cost matrix
+		cost_matrix = [[0 for i in range(ncities)] for j in range(ncities)]
+
+		# fill in the cost matrix with the lengths between cities
+		for i in range(ncities):
+			for j in range(ncities):
+				city_one = cities[i]
+				city_two = cities[j]
+				cost_matrix[i][j] = city_one.costTo(city_two)
+
+		return np.array(cost_matrix)
+
+	def reduce_cost_matrix(self, cost_matrix):
+		cities = self._scenario.getCities()
+		ncities = len(cities)
+		min_values = []
+		lower_bound = 0
+
+		# find the minimum values in each row
+		for i in range(ncities):
+			min_value = math.inf
+			for j in range(ncities):
+				if cost_matrix[i][j] < min_value:
+					min_value = cost_matrix[i][j]
+			if min_value < math.inf:
+				min_values.append(min_value)
+				lower_bound += min_value
+			else:
+				min_values.append(0)
+
+		# subtract the minimum value of each row from each city in row
+		for i in range(ncities):
+			for j in range(ncities):
+				cost_matrix[i][j] -= min_values[i]
+
+		# clear the min values array
+		min_values.clear()
+
+		# find the minimum value in each col
+		cost_matrix_transpose = cost_matrix.copy().transpose()
+		for i in range(ncities):
+			min_value = math.inf
+			for j in range(ncities):
+				if cost_matrix_transpose[i][j] < min_value:
+					min_value = cost_matrix_transpose[i][j]
+			if min_value < math.inf:
+				min_values.append(min_value)
+				lower_bound += min_value
+			else:
+				min_values.append(0)
+
+		# subtract the minimum value of each col from each city in col
+		for i in range(ncities):
+			for j in range(ncities):
+				cost_matrix[i][j] -= min_values[j]
+
+		return cost_matrix, lower_bound
+
+	def make_queue(self, cost_matrix, lower_bound, ncities):
+		# make the queue
+		queue = []
+		heapq.heapify(queue)
+
+		col = 1
+		for i in range(1, ncities):
+			child = cost_matrix.copy()
+			child_cost = child[0][col]
+
+			# the row and column values of the current cities
+			for j in range(ncities):
+				for k in range(ncities):
+					if k == col:
+						child[j][k] = math.inf
+					if j == 0:
+						child[j][k] = math.inf
+
+			child[col][0] = math.inf
+
+			# reduce the matrix
+			reduced_child_matrix, child_lower_bound = self.reduce_cost_matrix(child)
+
+			# create an array of previously visited cities
+			cities = [0, i]
+			level = 1
+
+			# if the lower bound isn't infinity, push the state onto the queue
+			if (lower_bound + child_lower_bound + child_cost) != math.inf:
+				heapq.heappush(queue, (((lower_bound + child_lower_bound + child_cost) / level),
+									   self.unique_id,
+									   (lower_bound + child_lower_bound + child_cost),
+									   level, reduced_child_matrix, cities))
+				self.update_id()
+				self.states += 1
+				self.update_queue(queue)
+			# if the lower bound is infinity, prune the state
+			else:
+				self.pruned += 1
+
+			col += 1
+
+			# check the time, if we are over the allowed time then return the current queue
+			self.check_time()
+			if not self.allowed_time:
+				return queue
+
+		return queue
+
+	def add_children(self, queue, lower_bound, level, cost_matrix, visited, ncities):
+		last_city = visited[-1]
+		# finds the remaining cities left
+		cities_remaining = self.cities_remaining(visited, ncities)
+		index = 0
+		col = cities_remaining[index]
+		for i in range(0, ncities - len(visited)):
+			child = cost_matrix.copy()
+			child_cost = child[last_city][col]
+
+			# the row and column values of the current cities
+			for j in range(ncities):
+				for k in range(ncities):
+					if k == col:
+						child[j][k] = math.inf
+					if j == last_city:
+						child[j][k] = math.inf
+
+			child[col][last_city] = math.inf
+
+			# reduce the matrix
+			reduced_child_matrix, child_lower_bound = self.reduce_cost_matrix(child)
+
+			# add current city to visited cities array
+			cities = visited.copy()
+			cities.append(col)
+			# level identifier
+			new_level = level + 1
+			# if the lower bound isn't infinity, push the state onto the queue
+			if (lower_bound + child_lower_bound + child_cost) != math.inf:
+				heapq.heappush(queue, (((lower_bound + child_lower_bound + child_cost) / new_level),
+									   self.unique_id,
+									   (lower_bound + child_lower_bound + child_cost),
+									   new_level, reduced_child_matrix, cities))
+				self.update_id()
+				self.states += 1
+				self.update_queue(queue)
+			# if the lower bound is infinity, prune the state
+			else:
+				self.pruned += 1
+
+			index += 1
+			# checks if the next index is out of bounds
+			if index <= len(cities_remaining) - 1:
+				col = cities_remaining[index]
+
+			# check the time, if we are over the allowed time then return the current queue
+			self.check_time()
+			if not self.allowed_time:
+				return queue
+		return queue
+
+	def cities_remaining(self, visited, ncities):
+		# initialize an array6
+		cities = []
+
+		# append an index to cities for every city in the problem
+		for i in range(ncities):
+			cities.append(i)
+
+		# remove the indexes of cities we have already visited
+		for i in range(len(visited)):
+			city = visited[i]
+			cities.remove(city)
+
+		# return the array of cities visited
+		return cities
+
+	def update_id(self):
+		# increment the unique id variable
+		self.unique_id += 1
+
+	def update_queue(self, queue):
+		# if the current length of the queue is greater than the max size, update the max size
+		if len(queue) > self.max_size:
+			self.max_size = len(queue)
+
+	def check_time(self):
+		# if the current time - the start is greater than the allowed, changed allowed time to false
+		if (time.time() - self.start_time) > self.time_allowance:
+			self.allowed_time = False
+
+	def set_variables(self):
+		self.unique_id = 0
+		self.states = 0
+		self.pruned = 0
+		self.solutions = 0
+		self.max_size = 0
 
 	''' <summary>
 		This is the entry point for the algorithm you'll write for your group project.
@@ -202,6 +405,7 @@ class TSPSolver:
 		best solution found.  You may use the other three field however you like.
 		algorithm</returns>
 	'''
+
 	def fancy(self, time_allowance=60.0):
 		default_tour = self.greedy(time_allowance)
 		solution = default_tour['soln']
