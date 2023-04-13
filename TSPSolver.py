@@ -202,13 +202,13 @@ class TSPSolver:
 		best solution found.  You may use the other three field however you like.
 		algorithm</returns>
 	'''
-
 	def fancy(self, time_allowance=60.0):
-		default_tour = self.defaultRandomTour(time_allowance)
+		default_tour = self.greedy(time_allowance)
 		solution = default_tour['soln']
 		route = solution.route
 		cost = solution.cost
 		solutions = 0
+		print(cost)
 
 		start_time = time.time()
 		improvement = True
@@ -218,12 +218,16 @@ class TSPSolver:
 				for j in range(i + 1, len(route) - 1):
 					if self.calculate_distance(i, i + 1, route) + self.calculate_distance(j, j + 1, route) > \
 							self.calculate_distance(i, j, route) + self.calculate_distance(i + 1, j + 1, route):
-						route[i + 1:j + 1] = reversed(route[i + 1:j + 1])
-						improvement = True
-						solution = TSPSolution(route)
-						route = solution.route
-						cost = solution.cost
-						solutions += 1
+						new_route = route.copy()
+						new_route[i + 1:j + 1] = reversed(new_route[i + 1:j + 1])
+						new_solution = TSPSolution(new_route)
+						if new_solution.cost < solution.cost:
+							improvement = True
+							solution = TSPSolution(new_route)
+							route = solution.route
+							cost = solution.cost
+							solutions += 1
+		print(cost)
 
 		end_time = time.time()
 		results = {}
