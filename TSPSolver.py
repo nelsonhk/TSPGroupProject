@@ -104,20 +104,26 @@ class TSPSolver:
             path_distance = 0
             visited = [current]
 
+            # visit each city in the graph, finding the cheapest path as you go
             while len(visited) < len(cities):
                 next_city = None
                 min_distance = float('inf')
+                # find the next cheapest city to visit
                 for city in cities:
                     if city not in visited:
                         distance = current.costTo(city)
                         if distance < min_distance:
                             min_distance = distance
                             next_city = city
+                # add the city to visited, add the distance to the path distance, and move on
                 visited.append(next_city)
-                current = next_city
                 path_distance += min_distance
+                current = next_city
 
+            # add the edge from last node to start node
             path_distance += current.costTo(start)
+
+            # compare this path to previous best paths (with other starting nodes)
             if path_distance < best_cost:
                 best_cost = path_distance
                 best_solution = TSPSolution(visited)
