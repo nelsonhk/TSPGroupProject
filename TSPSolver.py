@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 
 from which_pyqt import PYQT_VER
+from TSPState import TSPState
+from queue import PriorityQueue
 
 if PYQT_VER == 'PYQT5':
 	from PyQt5.QtCore import QLineF, QPointF
@@ -121,8 +123,76 @@ class TSPSolver:
 		max queue size, total number of states created, and number of pruned states.</returns>
 	'''
 
+	# Time complexity: O(n!)
+	# Space complexity: O(1)
 	def branchAndBound(self, time_allowance=60.0):
-		pass
+		# init values
+		startTime = time.time()
+		cities = self._scenario.getCities()
+		init = TSPState()
+		bssf = TSPState()
+		bssfCount = 0
+		maxQueueSize = 0
+		numPruned = 0
+		totalStates = 1
+
+		# reduced cost matrix algorithm - create initial state
+		# initialize distances
+		init.array = [[cities[i].costTo(cities[j]) for j in range(len(cities))] for i in range(len(cities))]
+
+		# reduce
+		init.cost = 0
+		init.reduce()
+
+		# create priority queue
+		queue = PriorityQueue()
+
+		# add initial state to it
+		queue.put((init.getPriorityKey(), init))
+
+		# run partial path branch and bound algorithm - O(n!)
+		while not queue.empty() and startTime + time_allowance > time.time():
+			if queue.qsize() > maxQueueSize:
+				maxQueueSize = queue.qsize()
+			P: TSPState = queue.get()[1]
+			if P.cost < bssf.cost:
+				T: [TSPState] = P.expand()
+				numPruned += len(P.array) - len(T)  # count infinite-cost states as pruned?
+				totalStates += len(P.array)
+				for Pi in T:
+					if Pi.isLeaf() and Pi.cost < bssf.cost:
+						bssf = Pi
+						bssfCount += 1
+					elif Pi.cost < bssf.cost:
+						queue.put((Pi.getPriorityKey(), Pi))
+					else:
+						numPruned += 1
+			else:
+				numPruned += 1
+
+		# count rest of pruned states if time went before queue emptied
+		while not queue.empty():
+			P: TSPState = queue.get()[1]
+			if P.cost >= bssf.cost:
+				numPruned += 1
+
+		# prepare TSPSolution and result with bssf
+		cityPath = [cities[i] for i in bssf.path]
+		cityPath.pop()
+		solution = TSPSolution(cityPath)
+
+		endTime = time.time()
+		results = {
+			'cost': bssf.cost,
+			'time': endTime - startTime,
+			'count': bssfCount,
+			'soln': solution,
+			'max': maxQueueSize,
+			'total': totalStates,
+			'pruned': numPruned
+		}
+		return results
+
 
 	''' <summary>
 		This is the entry point for the algorithm you'll write for your group project.
